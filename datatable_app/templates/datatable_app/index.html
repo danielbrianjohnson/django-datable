@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic DataTable</title>
+    
+    <!-- DataTables & Select2 CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.3.6/css/buttons.dataTables.min.css">
+
+    <!-- JavaScript Dependencies -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.3.6/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.html5.min.js"></script>
+
+</head>
+<body>
+
+    <h2>Dynamic DataTable</h2>
+    <div id="filtersContainer"></div>
+    <label>Search:</label>
+    <input type="text" id="globalSearch" placeholder="Search..." style="width: 200px; margin-bottom: 10px;">
+
+    <table id="dynamicTable" class="display" style="width:100%">
+        <thead><tr id="tableHead"></tr></thead>
+    </table>
+
+    <script>
+const tablesConfig = [
+    {
+        "tableId": "dynamicTable",
+        "api_url": "/api/data/",
+        "model": "Product",
+        "filters": [{ "field": "category", "label": "Category", "type": "multi-select" }]
+    },
+];
+
+$(document).ready(function () {
+    tablesConfig.forEach(config => fetchModelColumns(config));
+});
+
+function fetchModelColumns(config) {
+    $.ajax({
+        url: "/api/get-model-fields/",
+        type: "GET",
+        data: { model: config.model },
+        success: function (response) {
+            console.log("Fetched Model Fields:", response);  // Debugging
+            config.columns = response.columns;
+            config.filtersData = response.filters;  // Store filter data
+            console.log("Config after fetching fields:", config);  // Debugging
+            createTable(config);
+        },
+        error: function (xhr, status, error) {
+            console.error("Error fetching model fields:", error);
+        }
+    });
+}
+
+
+
+function createTable(config) {
+    console.log("Creating table for:", config.model);
+
+    var tableId = config.tableId;
+
+    console.log("Table ID:", tableId);
+
+    // Remove existing table if already initialized
+    if ($.fn.DataTable.isDataTable(`#${tableId}`)) {
+        console.warn("Destroying existing table before reinitialization");
+        $(`#${tableId}`).DataTable().destroy();
+        $(`#${tableId}`).empty();
+    }
+
+    // Populate Table Headers
+    $("#tableHead").empty();
+    config.columns.forEach(col => {
+        $("#tableHead").append(`<th>${col.title}</th>`);
+    });
+
+    // Create Filters with options from API
+    $("#filtersContainer").empty();
+    config.filters.forEach(filter => {
+        let filterHtml = `<label>${filter.label}:</label>
+                          <select id="${filter.field}Filter" multiple style="width: 200px;"></select>`;
+        $("#filtersContainer").append(filterHtml);
+    });
+
+    // Apply Select2 and Populate Options
+    config.filters.forEach(filter => {
+        let select = $(`#${filter.field}Filter`);
+        select.select2({ placeholder: `Select ${filter.label}`, allowClear: true });
+
+        if (config.filtersData && config.filtersData[filter.field]) {
+            config.filtersData[filter.field].forEach(value => {
+                select.append(new Option(value, value));
+            });
+        }
+    });
+
+    console.log("Initializing DataTable...", config.api_url);
+    console.log("Table ID:", tableId);
+
+    var table = $(`#${tableId}`).DataTable({
+    "processing": true,
+    "serverSide": true,
+    "dom": 'Blfrtip',
+    "buttons": ['copy', 'csv', 'excel', 'pdf', 'print'],
+    "ajax": {
+    "url": config.api_url,
+    "type": "GET",
+    "data": function (d) {
+        console.log("🚀 Sending AJAX Request to:", config.api_url);
+
+        d.model = config.model;
+
+        // ✅ Fix: Ensure multi-select values are sent correctly
+        config.filters.forEach(filter => {
+            let selectedValues = $(`#${filter.field}Filter`).val() || [];
+            console.log(`🎛 Filter '${filter.field}' Selected:`, selectedValues);
+
+            if (selectedValues.length > 0) {
+                d[filter.field] = selectedValues.join(","); // Convert array to comma-separated string
+            }
+        });
+
+        d.searchValue = $('#globalSearch').val();
+        console.log("📤 Request Data (After Modification):", d);
+    },
+    "dataSrc": function (json) {
+    console.log("📥 Received Response from API:", json);
+
+    if (!json.data) {
+        console.error("❌ API response does NOT contain data field!");
+    }
+
+    // ✅ Ensure Select2 selections are restored
+    if (json.selectedFilters) {
+        Object.keys(json.selectedFilters).forEach(filterKey => {
+            let selectedValues = json.selectedFilters[filterKey];
+
+            if (selectedValues && selectedValues.length > 0) {
+                console.log(`✅ Restoring Filter '${filterKey}' Selection:`, selectedValues);
+
+                let selectElement = $(`#${filterKey.replace("__in", "")}Filter`);
+
+                // ✅ Ensure options exist before setting values
+                selectedValues.forEach(value => {
+                    if (selectElement.find(`option[value="${value}"]`).length === 0) {
+                        selectElement.append(new Option(value, value, true, true));
+                    }
+                });
+
+                // ✅ Set values and trigger change
+                selectElement.val(selectedValues).trigger("change.select2");
+            }
+        });
+    }
+
+    return json.data || [];
+}
+
+,
+
+        "error": function (xhr, error, thrown) {
+            console.log("❌ AJAX Error:", error, "Status:", xhr.status, "Response:", xhr.responseText);
+            console.error("❌ AJAX Error:", error, "Status:", xhr.status, "Response:", xhr.responseText);
+        }
+    },
+    "columns": config.columns.map(col => ({ "data": col.key }))
+});
+
+
+    console.log("✅ DataTable initialized successfully.");
+
+    table.on('xhr.dt', function (e, settings, json, xhr) {
+    console.log("🔄 DataTable AJAX Response:", json);
+
+    if (json.selectedFilters) {
+        Object.keys(json.selectedFilters).forEach(filterKey => {
+            let selectedValues = json.selectedFilters[filterKey];
+
+            if (selectedValues && selectedValues.length > 0) {
+                console.log(`✅ Restoring Filter '${filterKey}' Selection:`, selectedValues);
+
+                let selectElement = $(`#${filterKey.replace("__in", "")}Filter`);
+
+                // ✅ Ensure options exist before setting values
+                selectedValues.forEach(value => {
+                    if (selectElement.find(`option[value="${value}"]`).length === 0) {
+                        selectElement.append(new Option(value, value, true, true));
+                    }
+                });
+
+                // ✅ Set selected values & trigger Select2 update
+                selectElement.val(selectedValues).trigger("change.select2");
+            }
+        });
+    }
+});
+
+    // Bind Filters & Search to Reload Table
+    $('#globalSearch').off("keyup").on('keyup', function () {
+    console.log("🔍 Global Search Triggered");
+    table.search($(this).val()).draw();
+});
+
+
+    config.filters.forEach(filter => {
+        $(`#${filter.field}Filter`).on('change', function () {
+            console.log(`🎛 Filter '${filter.field}' Changed`);
+            table.ajax.reload();
+        });
+    });
+}
+
+
+
+
+    </script>
+<style>
+    div.dataTables_filter {
+        display: none;
+    }
+</style>
+
+    
+</body>
+</html>
