@@ -131,6 +131,13 @@ function createTable(config) {
         });
 
         d.searchValue = $('#globalSearch').val();
+
+         // ✅ Add sorting parameters for backend processing
+         if (d.order.length > 0) {
+                    d.orderColumn = d.order[0].column; // Column index
+                    d.orderDir = d.order[0].dir; // asc or desc
+                }
+                
         console.log("📤 Request Data (After Modification):", d);
     },
     "dataSrc": function (json) {

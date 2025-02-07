@@ -60,9 +60,17 @@ def dynamic_data(request):
     order_direction = request.GET.get("orderDir", "asc")
 
     fields = [field.attname for field in ModelClass._meta.fields]
+    # ✅ Apply sorting
+    order_column_index = int(request.GET.get("orderColumn", 0))  # Column index from frontend
+    order_direction = request.GET.get("orderDir", "asc")  # asc or desc
+
+    fields = [field.attname for field in ModelClass._meta.fields]
     sort_field = fields[order_column_index] if 0 <= order_column_index < len(fields) else "id"
 
-    queryset = queryset.order_by(f"-{sort_field}" if order_direction == "desc" else sort_field)
+    if order_direction == "desc":
+        sort_field = f"-{sort_field}"
+
+    queryset = queryset.order_by(sort_field)
 
     # 🔹 Apply pagination
     paginator = Paginator(queryset, length)
